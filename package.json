@@ -1,0 +1,16 @@
+{
+  "name": "popcloudify",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "start": "wrangler dev"
+  },
+  "devDependencies": {
+    "itty-router": "^4.0.14",
+    "wrangler": "^3.0.0"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.6.3"
+  }
+}
