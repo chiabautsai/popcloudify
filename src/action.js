@@ -1,6 +1,12 @@
 import { error } from 'itty-router';
-import { consume, unescapeHtmlEntities } from './utils';
-// import iconv from 'iconv-lite';
+import {
+  extractFormFieldsFromResponse,
+  extractTidPidFromUrl,
+  validateFormField,
+  unescapeHtmlEntities,
+  consume,
+  getRemoteUrl
+} from './utils';
 
 const REMOTE_URL_BASE = new URL('http://needpop.com');
 const USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36';
@@ -96,7 +102,9 @@ export const reply = async (
     if (!options.tid || !postParams.message) {
       throw new Error('Invalid tid or Empty message');
     }
-
+    
+    postParams['htmlon'] = 1;
+    postParams['usesig'] = 1;
     return await compose(cdb_auth, 'reply', options, postParams);
 }
 
@@ -116,11 +124,11 @@ export const compose = async (
 
   const formFields = await extractFormFieldsFromResponse(composeFormResponse);
   const merged = { ...formFields, ...postParams};
-  // merged['message'] = iconv.encode(merged.message, 'gbk');
   const params = new URLSearchParams();
   
   for (const [key, value] of Object.entries(merged)) {
-    params.set(key, value);
+    const validated = validateFormField(key, value);
+    params.set(key, validated);
   }
 
   const postUrl = REMOTE_URL_BASE + unescapeHtmlEntities(formFields.action);
@@ -149,125 +157,4 @@ export const compose = async (
       console.log(e);
       throw e;
     });
-};
-
-// Function to extract form fields as key-value pairs from a response using HTMLRewriter
-async function extractFormFieldsFromResponse(response) {
-  // Create a custom HTMLRewriter instance
-  const rewriter = new HTMLRewriter();
-
-  const formFields = {};
-
-  let currentTextareaName = null;
-
-  rewriter.on('form', {
-    element(element) {
-      const action=element.getAttribute('action');
-      formFields['action'] = action;
-    }
-  });
-
-  // Define the 'form *' query handler
-  rewriter.on('form *', {
-    element(element) {
-      const name = element.getAttribute('name');
-      if (!name) {
-        // Ignore elements that have no 'name' attribute
-        return;
-      }
-
-      if (element.tagName === 'input') {
-        const inputType = element.getAttribute('type');
-        if (inputType === 'checkbox' && !element.hasAttribute('checked')) {
-          // Ignore unchecked checkboxes
-          return;
-        } else if (inputType === 'radio') {
-          // Handle radio buttons, add only the one with 'checked' attribute
-          if (element.hasAttribute('checked')) {
-            const value = element.getAttribute('value');
-            formFields[name] = value;
-          }
-        } else if (inputType === 'button') {
-          // Ignore input type="button"
-          return;
-        } else {
-          // For text inputs and other relevant input types, add key-value pair to formFields
-          const value = element.getAttribute('value');
-          formFields[name] = value;
-        }
-      } else if (element.tagName === 'textarea') {
-        currentTextareaName = name;
-      }
-    },
-  });
-
-  rewriter.on('form textarea', {
-    text({ text }) {
-      if (currentTextareaName) {
-        // For textareas, add key-value pair to formFields
-        formFields[currentTextareaName] += text;
-      }
-    },
-  }); 
-
-  // Chain another 'rewriter.on()' to handle select elements and their option elements
-  rewriter.on('form select', {
-    element(element) {
-      currentSelectName = element.getAttribute('name'); // Store the name attribute of the current select element
-    },
-  });
-  
-  let currentSelectName = null; // To store the name attribute of the current select element
-
-  // Chain another 'rewriter.on()' to handle option elements inside the select
-  rewriter.on('form select option[selected]', {
-    element(element) {
-      // Check if we have the name of the current select element
-      if (currentSelectName) {
-        const value = element.getAttribute('value');
-        formFields[currentSelectName] = value;
-      }
-    },
-  });
-
-  // Apply the extraction to the HTML response
-  await consume(rewriter.transform(response).body)
-
-  // Return the extracted form fields as key-value pairs
-  return formFields;
-}
-
-function extractTidPidFromUrl(url) {
-  const regex = /[?&]tid=(\d+)(?:.*?#pid(\d+))?/;
-  const match = url.match(regex);
-
-  if (match && match.length >= 2) {
-    const tid = match[1];
-    const pid = match[2] || null;
-    return { tid, pid };
-  } else {
-    return null; // URL doesn't contain tid and pid
-  }
-}
-
-const getRemoteUrl = (hostUrl, action, options = {}) => {
-  const url = new URL(hostUrl);
-  switch (action) {
-    case 'login':
-      url.pathname = '/logging.php';
-      url.searchParams.set('action', 'login');
-      break;
-    case 'newthread':
-    case 'reply':
-    case 'edit':
-      url.pathname = '/post.php';
-      url.searchParams.set('action', action);
-      break;
-    default:
-      throw new Error(`Invalid action: ${action}`);
-  }
-  for (const [key, value] of Object.entries(options)) {
-    url.searchParams.set(key, value);
-  }
-  return url;
 };
